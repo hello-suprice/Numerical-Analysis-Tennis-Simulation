@@ -1,0 +1,87 @@
+﻿clear all; close all; clc;
+% Konstanter
+massa = 0.057;            % Massa i kg
+grav = 9.82;              % Tyngdacceleration
+K = 0.001;                % Luftmotstånd
+L = 11.885;               % Avstånd till nätet i meter
+v_start = 200 / 3.6;      % Startfart i m/s
+y_start = 2.5;            % Starthöjd i meter
+nat_y = 0.914;            % Nätets höjd i meter
+y_mal = 1.00;     % Önskad höjd vid nätet 
+% Funktion för att beräkna höjden vid nätet
+funktion = @(vinkel) berakna_hojd_vid_nat(vinkel, v_start, y_start, K, massa, grav, L) - y_mal;
+% Sekantmetodens parametrar
+theta0 = -6;              % Första gissning i grader
+theta1 = -5;              % Andra gissning i grader
+tolerans = 1e-12;         % Tolerans för konvergens
+max_iter = 100;           % Max antal iterationer
+% Sekantmetoden
+for iter = 1:max_iter
+  f0 = funktion(theta0);
+  f1 = funktion(theta1);
+  theta2 = theta1 - f1 * (theta1 - theta0) / (f1 - f0);
+  if abs(theta2 - theta1) < tolerans
+      vinkel = theta2;
+      break;
+  end
+  theta0 = theta1;
+  theta1 = theta2;
+end
+% Kontrollera om lösning hittades
+if iter == max_iter
+  disp('Ingen lösning hittades inom max antal iterationer.');
+else
+  disp(['Den sökta vinkeln är ', num2str(vinkel), ' grader efter ', num2str(iter), ' iterationer.']);
+end
+% ---------------------------------------------
+% Funktioner
+% ---------------------------------------------
+function y_net = berakna_hojd_vid_nat(vinkel, v_start, y_start, K, massa, grav, L)
+  [U, i] = simulera_bollbana(vinkel, v_start, y_start, K, massa, grav, L);
+  y_net = spline(U(1,1:i+1), U(3,1:i+1), L);
+end
+function [U, i] = simulera_bollbana(vinkel_deg, v_start, y_start, K, massa, grav, L)
+  % Simulerar bollens bana för en given vinkel och returnerar U och sista index i
+  % Konvertera vinkel till radianer
+  vinkel_rad = deg2rad(vinkel_deg);
+ 
+  % Initiala hastighetskomponenter
+  hastighet_x0 = v_start * cos(vinkel_rad);
+  hastighet_y0 = v_start * sin(vinkel_rad);
+ 
+  % Tidssteg och total tid
+  dt = 0.01;  % Använd ett litet tidssteg för noggrannhet
+  t_max = 5;
+  N = floor(t_max / dt);
+ 
+  % Initialt tillstånd
+  U = zeros(4, N);   % [x; x'; y; y']
+  U(:,1) = [0; hastighet_x0; y_start; hastighet_y0];
+ 
+  V = @(U) sqrt(U(2)^2+U(4)^2);
+  uprim = @(U) [U(2); -K * U(2) * V(U) / massa; U(4); -grav - K * U(4) * V(U) / massa];
+ 
+  % Runge-Kutta loop
+  for i = 1:N-1
+      % Beräkna k1, k2, k3, k4 för Runge-Kutta
+      k1 = uprim(U(:,i));
+      k2 = uprim(U(:,i) + dt/2 * k1);
+      k3 = uprim(U(:,i) + dt/2 * k2);
+      k4 = uprim(U(:,i) + dt * k3);
+     
+      k = (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+ 
+      % Uppdatera positioner och hastigheter
+      U(:,i+1) = U(:,i) + dt * k;
+ 
+      % Hantera studs mot marken
+      if U(3,i+1) <= 0
+          U(4,i+1) = -U(4,i+1);        % Invertera hastigheten i y-led
+      end
+ 
+      % Avsluta simuleringen om bollen lämnar banan
+      if U(1,i+1) >= 2 * L  % Banan slutar vid x = 2 * L
+          break;
+      end
+  end
+end

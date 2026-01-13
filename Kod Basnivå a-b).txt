@@ -1,0 +1,109 @@
+﻿clear all; close all; clc;
+format long
+% Konstanter
+massa = 0.057;     % Massa i kg
+grav = 9.82;       % Tyngdacceleration
+K = 0.001;         % Luftmotstånd
+L = 11.885;        % Avstånd till nätet i meter
+v_start = 200 / 3.6; % Startfart i m/s
+vinkel = -6;       % (nedåt)
+y_start = 2.5;     % Start från 2.5 m höjd
+% Tidssteg och total tid
+dt = 0.01*1;        % Tidssteg i sekunder
+t_max = 5 ;         % Maximal simuleringstid i sekunder
+N = floor(t_max / dt);    % Antal tidssteg
+% Initiala hastighetskomponenter
+hastighet_x0 = v_start * cosd(vinkel);  % Hastighet i x-led
+hastighet_y0 = v_start * sind(vinkel);  % Hastighet i y-led
+% Initialt tillstånd
+U = zeros(4, N);   % [x; x'; y; y']
+U(:,1) = [0; hastighet_x0; y_start; hastighet_y0];
+% Funktion för derivatorna
+V = @(U) sqrt(U(2)^2+U(4)^2);
+uprim = @(U) [U(2); -K * U(2) * V(U) / massa; U(4); -grav - K * U(4) * V(U) / massa];
+% Studskoefficient
+e = 1;  % Ändra till ett värde mellan 0 och 1 för energiförlust
+% Runge-Kutta loop
+for i = 1:N-1
+  % Beräkna k1, k2, k3, k4 för Runge-Kutta
+  k1 = uprim(U(:,i));
+  k2 = uprim(U(:,i) + dt/2 * k1);
+  k3 = uprim(U(:,i) + dt/2 * k2);
+  k4 = uprim(U(:,i) + dt * k3);
+ 
+  k = (k1 + 2 * k2 + 2 * k3 + k4) / 6;
+  % Uppdatera positioner och hastigheter
+  U(:,i+1) = U(:,i) + dt * k;
+ % Hantera studs mot marken
+  if U(3,i+1) <= 0
+      % Interpolera för att hitta exakt tidpunkt för markkontakt
+      alfa = U(3,i) / (U(3,i) - U(3,i+1));
+      % Uppdatera tillståndet vid markkontakten
+      U(:,i+1) = U(:,i) + alfa * (U(:,i+1) - U(:,i));
+      U(3,i+1) = 0;  % Sätt höjden till 0
+      U(4,i+1) = -e * U(4,i+1);  % Invertera och skala den vertikala hastigheten
+      % Kontrollera om den vertikala hastigheten är för liten för att fortsätta
+      if abs(U(4,i+1)) < 1e-5
+          U = U(:,1:i+1);
+          break;
+      end
+  end
+  % Hantera bortre bankanten
+  if U(1,i+1) >= 2 * L
+      % Interpolation vid bortre bankanten
+      beta = (2 * L - U(1,i)) / (U(1,i+1) - U(1,i));
+      U(:,i+1) = U(:,i) + beta * (U(:,i+1) - U(:,i));
+      U(1,i+1) = 2 * L;  % Sätt x-positionen till bortre bankanten
+      U = U(:,1:i+1);
+      break;
+  end
+end
+% Kontrollera om bollen passerar över nätet utan att nudda det
+nat_x = L;       % Nätets position i x-led
+nat_y = 0.914;   % Nätets höjd i meter
+% Spline for att hitta höjden vid nätet
+y_vid_nat = spline(U(1,:), U(3,:), nat_x);
+if y_vid_nat > nat_y
+  disp(['Bollen passerar över nätet utan att nudda det.', num2str(y_vid_nat),  'meter.']);
+else
+  disp(['Bollen traffar nätet (x = ', num2str(nat_x), ' m) vid ', num2str(y_vid_nat), ' meter.']);
+end
+% Plotta bollbanan med datapunkter
+figure;
+plot(U(1,:), U(3,:), 'b-', 'LineWidth', 1);
+hold on;
+% Rita nätet
+nat_x = L;       % Nätets position i x-led
+nat_y = 0.914;   % Nätets höjd i meter
+plot([nat_x, nat_x], [0, nat_y], 'k', 'LineWidth', 2);
+% Plotta bollbanan med splines
+xx = linspace(min(U(1,:)), max(U(1,:)), 1000);
+yy = spline(U(1,:), U(3,:), xx);
+% Markera serverutan
+serveruta_start = 11.885;
+serveruta_slut = 11.885 + 11.885;
+plot([serveruta_slut, serveruta_slut], [0, max(yy)+1], 'r--', 'LineWidth', 2);
+xlabel('Avstånd i x-led (m)');
+ylabel('Höjd över marken (m)');
+title('Bollens bana vid tennisserve');
+grid on;
+xlim([0, max(U(1,:))]);
+ylim([0, max(U(3,:)) + 1]);
+% Hitta var bollen studsar första gången
+studsar = find(U(3,:) == 0);
+if ~isempty(studsar)
+  studs_x = U(1, studsar(1));
+  disp(['Bollen studsar vid x = ', num2str(studs_x), ' meter.']);
+else
+  disp('Ingen studs hittades inom simuleringstiden.');
+end
+% b)
+% Beräkna höjden vid bortre bankanten
+bankant_x = 2 * L;  % x = 23.77 meter
+% Kontrollera om bollen har nått bortre bankanten
+if U(1,end) >= bankant_x
+  y_vid_bankant = spline(U(1,:), U(3,:), bankant_x);
+  disp(['Höjden vid bortre bankanten (x = ', num2str(bankant_x), ' m) är ', num2str(y_vid_bankant), ' meter.']);
+else
+  disp('Bollen har inte nått bortre bankanten inom simuleringstiden.');
+end

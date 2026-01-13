@@ -1,0 +1,116 @@
+﻿clear all; close all; clc;
+format long
+% -----------------------------------------------
+% Konstanter och initiala parametrar
+% -----------------------------------------------
+% Startparametrar
+start_hastighet = 200/3.6; % m/s
+start_vinkel = deg2rad(-6); % Startvinkel i radianer
+start_x = 0; % Startposition i x-led
+start_y = 2.50; % Startposition i y-led
+hastighet_x = start_hastighet * cos(start_vinkel); % Initial hastighet i x-led 
+hastighet_y = start_hastighet * sin(start_vinkel); % Initial hastighet i y-led
+% Fysiska konstanter
+massa = 0.057; % kg
+luftmotstand = 0.001; % Ns^2/kg^2
+gravitation = 9.82; % m/s^2
+studs_koefficient = 1; % Elastisk studs
+% Gränser och hinder
+max_x_position = 23.77; % Bortre bankant
+nat_x = 11.885; % Nätets x-position
+nat_hojd = 0.914; % Nätets höjd
+% Initialtillstånd
+init_tillstand = [start_x; hastighet_x; start_y; hastighet_y];
+% Simuleringsinställningar
+options = odeset('Events', @events);
+tid_total = [];
+positioner_total = [];
+tid_intervall = [0, 5]; % Tid för varje integration
+nat_passerad = false;
+% -----------------------------------------------
+% Simulering
+% -----------------------------------------------
+while tid_intervall(1) < tid_intervall(2)
+  % Lös differentialekvationerna för nuvarande tidsintervall
+  [tid, positioner, tid_event, pos_event, id_event] = ode45(@tennis_ode, tid_intervall, init_tillstand, options);
+ 
+  % Spara lösningen
+  tid_total = [tid_total; tid];
+  positioner_total = [positioner_total; positioner];
+ 
+  % Kontrollera om bollen passerar nätet
+  if ~nat_passerad && any(positioner(:,1) >= nat_x)
+      hojd_vid_nat = spline(positioner(:,1), positioner(:,3), nat_x); % Interpolera höjd vid nätet
+      if hojd_vid_nat > nat_hojd
+          disp(['a) Bollen går över nätet utan att nudda det. Höjd vid nätet: ', num2str(hojd_vid_nat), ' meter.']);
+      else
+          disp('a) Bollen nuddar nätet.');
+      end
+      nat_passerad = true;
+  end
+ 
+  % Hantera eventuella studsar
+  if ~isempty(pos_event)
+      % Kontrollera om bollen når bortre bankanten
+      if pos_event(1) >= max_x_position
+          break; % Avsluta simuleringen
+      end
+      % Studspositionen
+      disp(['Bollen studsar vid x = ', num2str(pos_event(1)), ' meter.']);
+     
+      % Uppdatera tillståndet för en studs
+      init_tillstand = [pos_event(1); pos_event(2); 0; -studs_koefficient * pos_event(4)];
+      tid_intervall = [tid_event, tid_intervall(2)]; % Uppdatera tid för nästa iteration
+  else
+      break; % Ingen mer händelse, avsluta
+  end
+end
+% -----------------------------------------------
+% Analysera resultat
+% -----------------------------------------------
+% Filtrera unika värden för spline
+[unikt_x, unikt_index] = unique(positioner_total(:,1), 'stable');
+unikt_y = positioner_total(unikt_index, 3);
+% Kontrollera höjden vid bortre bankanten
+if max(unikt_x) >= max_x_position
+  hojd_vid_bankant = spline(unikt_x, unikt_y, max_x_position);
+  disp(['b) Höjden vid bortre bankanten (x = ', num2str(max_x_position), ' m) är ', num2str(hojd_vid_bankant), ' meter.']);
+else
+  disp('b) Bollen når inte bortre bankanten inom simuleringen.');
+end
+% -----------------------------------------------
+% Plotta resultat
+% -----------------------------------------------
+figure;
+plot(unikt_x, unikt_y, 'b-', 'LineWidth', 2); % Bollens bana
+hold on;
+plot([nat_x, nat_x], [0, nat_hojd], 'r-', 'LineWidth', 2); % Nätet
+plot([max_x_position, max_x_position], [0, max(unikt_y)], 'g--', 'LineWidth', 2); % Bortre bankant
+xlabel('Horisontell position x (m)');
+ylabel('Vertikal position y (m)');
+title('Tennis A');
+legend('Bollens bana', 'Nätet', 'Bortre bankanten');
+grid on;
+% -----------------------------------------------
+% Funktioner
+% -----------------------------------------------
+% Funktion för rörelseekvationer
+function dydt = tennis_ode(~, y)
+  m = 0.057;
+  K = 0.001;
+  g = 9.82;
+  x2 = y(2);
+  y2 = y(4);
+  V = sqrt(x2^2 + y2^2);
+  dydt = [x2;
+          (-K * x2 * V) / m;
+          y2;
+          (-g - (K * y2 * V) / m)];
+end
+% Händelsefunktion för marknivå och bortre bankant
+function [value, isterminal, direction] = events(~, y)
+  max_x_position = 23.77; % Bortre bankant
+  value = [y(3); max_x_position - y(1)]; % [y-position; avstånd till bortre bankant]
+  isterminal = [1; 1]; % Avsluta integration vid båda händelserna
+  direction = [-1; -1]; % y går mot marken, x går mot bortre kanten
+end

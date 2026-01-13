@@ -1,0 +1,90 @@
+﻿clear all; close all; clc;
+format long
+% -----------------------------------------------
+% Konstanter
+% -----------------------------------------------
+massa = 0.057;          % Massa i kg
+grav = 9.82;            % Tyngdacceleration
+K = 0.001;              % Luftmotstånd
+L = 11.885;             % Avstånd till nätet i meter
+v_start = 200 / 3.6;% Startfart i m/s
+y_start = 2.5;          % Start från 2.5 m höjd
+
+% Målvärde för höjden vid nätet
+y_mal = 1.0; % 1 meter över marken
+
+% -----------------------------------------------
+% Funktion för höjd vid nätet minus målvärde
+% -----------------------------------------------
+funktion = @(vinkel) berakna_hojd_vid_nat(vinkel, v_start, y_start, K, massa, grav, L) - y_mal;
+
+% Anropa fzero med ett intervall eller en startgissning
+vinkel = fzero(funktion, [-6, -5]);
+
+disp(['Den sökta vinkeln är ', num2str(vinkel), ' grader.']);
+
+% -----------------------------------------------
+% Funktioner
+% -----------------------------------------------
+function y_net = berakna_hojd_vid_nat(vinkel_deg, v_start, y_start, K, massa, grav, L)
+  [y_net, ~, ~] = simulera_bollbana(vinkel_deg, v_start, y_start, K, massa, grav, L);
+end
+
+function [y_net, tid, positioner] = simulera_bollbana(vinkel_deg, v_start, y_start, K, massa, grav, L)
+  % Simulerar bollens bana med ode45 och beräknar höjden vid nätet
+
+  % Konvertera vinkel till radianer
+  vinkel_rad = deg2rad(vinkel_deg);
+
+  % Initiala hastighetskomponenter
+  hastighet_x0 = v_start * cos(vinkel_rad);
+  hastighet_y0 = v_start * sin(vinkel_rad);
+
+  % Initialtillstånd: [x; x'; y; y']
+  init_tillstand = [0; hastighet_x0; y_start; hastighet_y0];
+
+  % Tidsintervall och odeset-inställningar
+  t_span = [0, 5];
+  options = odeset('Events', @events, 'RelTol', 1e-8, 'AbsTol', 1e-10);
+
+  % Kör simuleringen med ode45
+  [tid, positioner] = ode45(@tennis_ode, t_span, init_tillstand, options);
+
+  % Extrahera x- och y-positioner
+  x_vals = positioner(:, 1); % x-positioner
+  y_vals = positioner(:, 3); % y-positioner
+
+  % Kontrollera om bollen har nått nätets position
+  if x_vals(end) >= L
+          % Använd spline för att interpolera höjden vid nätet
+          y_net = spline(x_vals, y_vals, L); % Höjd vid nätets x-position
+  else
+          % Om bollen inte har nått nätet, använd sista värdet
+          y_net = y_vals(end);
+  end
+end
+
+function dydt = tennis_ode(~, y)
+  % Differentialekvationer för bollens rörelse
+  m = 0.057; % Massa
+  K = 0.001; % Luftmotståndskoefficient
+  g = 9.82;  % Gravitation 
+
+  % Hastigheter
+  vx = y(2); % Hastighet i x-led
+  vy = y(4); % Hastighet i y-led
+  v_tot = sqrt(vx^2 + vy^2); % Total hastighet
+
+  % Differentialekvationer
+  dydt = [vx;
+              (-K * vx * v_tot) / m;
+              vy;
+              (-g - (K * vy * v_tot) / m)];
+end
+
+function [value, isterminal, direction] = events(~, y)
+  % Händelsefunktion för att stoppa integrationen när bollen når marken
+  value = y(3); % y-position
+  isterminal = 1; % Stoppa integrationen vid händelsen
+  direction = -1; % Händelse sker när y är på väg ned
+end
